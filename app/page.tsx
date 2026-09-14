@@ -18,6 +18,7 @@ export default function Home() {
   const [userRole, setUserRole] = useState<UserRole>('farmer');
   const [activeTab, setActiveTab] = useState('home');
   const [servicesOpen, setServicesOpen] = useState(false);
+  const [isAddBatchOpen, setIsAddBatchOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isServiceActive = ['dashboard', 'varieties', 'decision', 'logging', 'audit'].includes(activeTab);
@@ -100,7 +101,7 @@ export default function Home() {
               About Us
             </button>
 
-            {/* SEED LOTS TAB REPLACING TRACE LINEAGE */}
+            {/* SEED LOTS TAB */}
             <button 
               onClick={() => setActiveTab('lots')}
               className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
@@ -201,7 +202,6 @@ export default function Home() {
               Logout
             </button>
           </nav>
-
         </div>
 
         {/* Mobile Navigation Dropdown Bar */}
@@ -229,7 +229,6 @@ export default function Home() {
 
       {/* MAIN CONTENT WORKSPACE */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
         {/* HOME VIEW */}
         {activeTab === 'home' && (
           <div className="space-y-8">
@@ -342,12 +341,26 @@ export default function Home() {
           </div>
         )}
 
-        {/* SEED LOTS VIEW (REPLACES TRACEABILITY VIEW) */}
+        {/* SEED LOTS VIEW */}
         {activeTab === 'lots' && (
           <div className="max-w-6xl mx-auto space-y-6">
             {(userRole === 'da_head' || userRole === 'da_staff') && (
               <div className="flex justify-end">
-                <AddSeedBatchModal />
+                <button
+                  onClick={() => setIsAddBatchOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-sm flex items-center gap-2"
+                >
+                  <span>+</span> Register New Seed Batch
+                </button>
+                
+                {isAddBatchOpen && (
+                  <AddSeedBatchModal 
+                    onClose={() => setIsAddBatchOpen(false)}
+                    onSuccess={() => {
+                      setIsAddBatchOpen(false);
+                    }}
+                  />
+                )}
               </div>
             )}
             <SeedLotManager />
