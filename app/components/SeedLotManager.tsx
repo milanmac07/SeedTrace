@@ -1,32 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import SeedLotQRModal from './SeedLotQRModal';
 
 export interface SeedLot {
   id: string;
   lot_code: string;
-  
-  // DA Farmer Demographics
+
+  // Farm Registration Telemetry
   farmer_name?: string;
-  contact_number?: string;
   location?: string;
-  birthday?: string;
-  gender?: string;
-  is_ip?: boolean;
-  ip_group_name?: string;
+  registered_municipal_area?: string;
+  total_parcel_count?: number;
+  area_to_be_planted_ha?: number;
+  number_of_bags?: number;
+  rice_variety_received?: string;
+  crop_establishment?: 'D' | 'T';
+  expected_sowing_date?: string;
 
-  // DA Farm Metrics
+  // Major Seed & Harvest Telemetry
+  seed_class?: 'CS' | 'H' | 'F';
   variety_id?: string;
-  farm_area_hectares?: number;
-  seed_beds_count?: number;
-  planting_date?: string;
-
-  // DA Harvest Data
-  harvest_date?: string;
-  harvest_amount_kg?: number;
-  avg_sacks_harvested?: number;
+  planted_variety?: string;
+  area_harvested_ha?: number;
+  total_harvest_bags?: number;
+  harvest_weight_per_bag_kg?: number;
+  date_received?: string;
 
   status?: string;
   qr_code_path?: string;
@@ -56,20 +56,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState('');
 
-  useEffect(() => {
-    fetchSeedLots();
-
-    const localSaved = localStorage.getItem('saved_rice_varieties');
-    if (localSaved) {
-      try {
-        setSavedVarietyIds(JSON.parse(localSaved));
-      } catch (e) {
-        console.error('Failed to parse saved varieties', e);
-      }
-    }
-  }, []);
-
-  const fetchSeedLots = async () => {
+  const fetchSeedLots = useCallback(async () => {
     setLoading(true);
 
     const { data, error } = await supabase
@@ -86,11 +73,35 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
       console.error('Error fetching seed lots:', error.message);
     }
     setLoading(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchSeedLots();
+
+    const localSaved = localStorage.getItem('saved_rice_varieties');
+    if (localSaved) {
+      try {
+        setSavedVarietyIds(JSON.parse(localSaved));
+      } catch (e) {
+        console.error('Failed to parse saved varieties', e);
+      }
+    }
+  }, [fetchSeedLots]);
 
   const handleSaveVariety = async (lot: SeedLot) => {
-    const varietyId = lot.varieties?.id || lot.variety_id || lot.varieties?.variety_name || lot.varieties?.name;
-    const varietyName = lot.varieties?.variety_name || lot.varieties?.name || lot.variety_id || 'Unknown Variety';
+    const varietyId =
+      lot.varieties?.id ||
+      lot.variety_id ||
+      lot.planted_variety ||
+      lot.rice_variety_received ||
+      'Unknown Variety';
+
+    const varietyName =
+      lot.varieties?.variety_name ||
+      lot.varieties?.name ||
+      lot.planted_variety ||
+      lot.rice_variety_received ||
+      'Unknown Variety';
 
     setSaving(true);
     setSaveFeedback('');
@@ -104,48 +115,64 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
         console.warn('Supabase save notice:', dbError.message);
       }
 
-      const updatedList = Array.from(new Set([...savedVarietyIds, varietyId || varietyName]));
+      const updatedList = Array.from(new Set([...savedVarietyIds, varietyId, varietyName]));
       setSavedVarietyIds(updatedList);
       localStorage.setItem('saved_rice_varieties', JSON.stringify(updatedList));
 
       setSaveFeedback('✓ Variety saved successfully!');
-    } catch (err) {
+    } catch {
       setSaveFeedback('Saved locally.');
     } finally {
       setSaving(false);
     }
   };
 
-  const filteredLots = seedLots.filter((lot) => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return true;
-
-    const lotCode = (lot.lot_code || lot.id || '').toLowerCase();
-    const farmer = (lot.farmer_name || '').toLowerCase();
-    const location = (lot.location || '').toLowerCase();
-    const varietyName = (lot.varieties?.variety_name || lot.varieties?.name || lot.variety_id || '').toLowerCase();
-    const status = (lot.status || '').toLowerCase();
-
-    return lotCode.includes(query) || farmer.includes(query) || location.includes(query) || varietyName.includes(query) || status.includes(query);
-  });
-
   const getVarietyDisplayName = (lot: SeedLot) =>
-    lot.varieties?.variety_name || lot.varieties?.name || lot.variety_id || 'N/A';
+    lot.planted_variety ||
+    lot.varieties?.variety_name ||
+    lot.varieties?.name ||
+    lot.rice_variety_received ||
+    'N/A';
 
   const isVarietySaved = (lot: SeedLot) => {
-    const varKey = lot.varieties?.id || lot.variety_id || lot.varieties?.variety_name || lot.varieties?.name;
-    return varKey ? savedVarietyIds.includes(varKey) : false;
+    const varId = lot.varieties?.id || lot.variety_id;
+    const varName = lot.planted_variety || lot.rice_variety_received;
+    
+    return Boolean(
+      (varId && savedVarietyIds.includes(varId)) ||
+      (varName && savedVarietyIds.includes(varName))
+    );
   };
+
+  const filteredLots = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return seedLots;
+
+    return seedLots.filter((lot) => {
+      const lotCode = (lot.lot_code || lot.id || '').toLowerCase();
+      const farmer = (lot.farmer_name || '').toLowerCase();
+      const location = (lot.location || lot.registered_municipal_area || '').toLowerCase();
+      const varietyName = getVarietyDisplayName(lot).toLowerCase();
+
+      return (
+        lotCode.includes(query) ||
+        farmer.includes(query) ||
+        location.includes(query) ||
+        varietyName.includes(query)
+      );
+    });
+  }, [seedLots, searchQuery]);
 
   return (
     <>
-      {/* Main Container - Full Width & Clean Spacing */}
       <div className="w-full bg-emerald-950/80 backdrop-blur-md p-6 sm:p-8 rounded-2xl border border-emerald-800 text-white space-y-6 shadow-xl">
         {/* Header & Controls */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h2 className="text-xl font-bold text-white">Registered DA Rice Seed Lots</h2>
-            <p className="text-xs text-emerald-200 mt-1">Track registered farmer batches, yield telemetry, and generate QR passes</p>
+            <h2 className="text-xl font-bold text-white">Digital Rice Seed Lot Records</h2>
+            <p className="text-xs text-emerald-200 mt-1">
+              Track DA farmer field allotments, seed distributions, and harvest metrics
+            </p>
           </div>
 
           {onOpenAddModal && (
@@ -154,7 +181,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
               onClick={onOpenAddModal}
               className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-md active:scale-95 whitespace-nowrap"
             >
-              + Register New Seed Batch
+              + Register Digital Record
             </button>
           )}
         </div>
@@ -162,7 +189,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
         {/* Search Bar */}
         <input
           type="text"
-          placeholder="Search by Farmer Name, Location, Lot Code, or Variety..."
+          placeholder="Search by Farmer, Location, Lot Code, or Planted Variety..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full bg-emerald-900/40 border border-emerald-700 text-white placeholder-emerald-400/60 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-400 outline-none transition-all"
@@ -171,11 +198,11 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
         {/* Main Seed Lots Table */}
         {loading ? (
           <div className="p-12 text-center text-sm text-emerald-300 animate-pulse">
-            Loading seed records...
+            Loading digital seed records...
           </div>
         ) : filteredLots.length === 0 ? (
           <div className="p-12 text-center text-sm text-emerald-300 border border-dashed border-emerald-800 rounded-xl">
-            No matching DA seed lot records found.
+            No matching digital seed lot records found.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-emerald-800/80">
@@ -184,10 +211,10 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
                 <tr>
                   <th className="px-5 py-3.5">Lot Code</th>
                   <th className="px-5 py-3.5">Farmer Name</th>
-                  <th className="px-5 py-3.5">Location</th>
-                  <th className="px-5 py-3.5">Rice Variety</th>
+                  <th className="px-5 py-3.5">Municipal Area</th>
+                  <th className="px-5 py-3.5">Planted Variety</th>
+                  <th className="px-5 py-3.5">Seed Class</th>
                   <th className="px-5 py-3.5">Area (Ha)</th>
-                  <th className="px-5 py-3.5">Est. Yield</th>
                   <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
@@ -198,24 +225,21 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
                       {lot.lot_code}
                     </td>
                     <td className="px-5 py-4 font-medium text-white whitespace-nowrap">
-                      {lot.farmer_name || 'N/A'}{' '}
-                      {lot.is_ip && (
-                        <span className="text-[10px] bg-amber-900/60 text-amber-300 border border-amber-700 px-1.5 py-0.5 rounded ml-1 font-sans">
-                          IP
-                        </span>
-                      )}
+                      {lot.farmer_name || 'N/A'}
                     </td>
                     <td className="px-5 py-4 text-emerald-200">
-                      {lot.location || 'N/A'}
+                      {lot.location || lot.registered_municipal_area || 'N/A'}
                     </td>
                     <td className="px-5 py-4 text-emerald-200 font-medium whitespace-nowrap">
                       {getVarietyDisplayName(lot)}
                     </td>
                     <td className="px-5 py-4 text-emerald-200 whitespace-nowrap">
-                      {lot.farm_area_hectares ? `${lot.farm_area_hectares} ha` : 'N/A'}
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-900/80 border border-emerald-700">
+                        {lot.seed_class || 'N/A'}
+                      </span>
                     </td>
                     <td className="px-5 py-4 text-emerald-200 whitespace-nowrap">
-                      {lot.avg_sacks_harvested ? `${lot.avg_sacks_harvested} sacks` : 'N/A'}
+                      {lot.area_to_be_planted_ha ? `${lot.area_to_be_planted_ha} ha` : 'N/A'}
                     </td>
                     <td className="px-5 py-4 text-right space-x-2 whitespace-nowrap">
                       <button
@@ -223,7 +247,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
                         onClick={() => setSelectedLotForQR(lot)}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-all inline-flex items-center gap-1 shadow-sm"
                       >
-                        📱 Generate QR
+                        📱 QR Pass
                       </button>
 
                       <button
@@ -234,7 +258,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
                         }}
                         className="text-xs text-emerald-300 hover:text-white bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-700 px-3 py-1.5 rounded-lg transition-colors inline-flex items-center font-medium"
                       >
-                        View Details
+                        View Record
                       </button>
                     </td>
                   </tr>
@@ -245,7 +269,7 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
         )}
       </div>
 
-      {/* QR MODAL */}
+      {/* QR Modal */}
       {selectedLotForQR && (
         <SeedLotQRModal
           batchNumber={selectedLotForQR.lot_code}
@@ -255,22 +279,22 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
         />
       )}
 
-      {/* FULL DA TRACEABILITY & DETAILS MODAL - Rendered outside green box */}
+      {/* Full Digital Record Modal */}
       {selectedLot && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
-          <div className="relative w-full max-w-2xl bg-white text-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-200 my-auto max-h-[85vh] flex flex-col">
+          <div className="relative w-full max-w-3xl bg-white text-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl border border-slate-200 my-auto max-h-[85vh] flex flex-col">
             
             {/* Modal Header */}
             <div className="flex justify-between items-start border-b border-slate-100 pb-4 flex-shrink-0">
               <div>
                 <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  🌾 Seed Lot Traceability Details
+                  🌾 Digital Seed Lot Record
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Registered batch data and harvest yield records
+                  Complete Field Profile and Harvest Telemetry Log
                 </p>
               </div>
-              <button 
+              <button
                 type="button"
                 onClick={() => setSelectedLot(null)}
                 className="text-slate-400 hover:text-slate-700 text-xl font-bold p-1 rounded-lg transition-colors"
@@ -282,13 +306,13 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
             {/* Modal Body */}
             <div className="overflow-y-auto space-y-5 pr-2 my-4 text-xs">
               
-              {/* Section 1: Farmer & Location Data */}
+              {/* Section 1: Farmer & Land Details */}
               <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3">
                 <h4 className="font-bold text-emerald-800 uppercase tracking-wider text-[11px]">
-                  Farmer & Batch Information
+                  1. Farmer & Area Registration
                 </h4>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
                     <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Lot Code:</span>
                     <span className="font-bold font-mono text-emerald-700 text-sm">{selectedLot.lot_code}</span>
@@ -300,36 +324,68 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Location:</span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Farm Location:</span>
                     <span className="font-bold text-slate-800">{selectedLot.location || 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Contact Number:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.contact_number || 'N/A'}</span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Municipal Area:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.registered_municipal_area || selectedLot.location || 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Birthday & Gender:</span>
-                    <span className="font-bold text-slate-800">
-                      {selectedLot.gender || 'N/A'} {selectedLot.birthday ? `(${selectedLot.birthday})` : ''}
-                    </span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Total Parcel Count:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.total_parcel_count ?? 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">IP Affiliation:</span>
-                    <span className="font-bold text-slate-800">
-                      {selectedLot.is_ip ? `Yes (${selectedLot.ip_group_name || 'Member'})` : 'No'}
-                    </span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Area to be Planted:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.area_to_be_planted_ha ? `${selectedLot.area_to_be_planted_ha} ha` : 'N/A'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Section 2: Cultivation Telemetry */}
+              {/* Section 2: Distribution & Establishment */}
+              <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3">
+                <h4 className="font-bold text-emerald-800 uppercase tracking-wider text-[11px]">
+                  2. Seed Allocation & Establishment
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Number of Bags (20kg/bag):</span>
+                    <span className="font-bold text-slate-800">{selectedLot.number_of_bags ? `${selectedLot.number_of_bags} bags` : 'N/A'}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Rice Variety Received:</span>
+                    <span className="font-bold text-emerald-700">{selectedLot.rice_variety_received || 'N/A'}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Crop Estab [D/T]:</span>
+                    <span className="font-bold text-slate-800">
+                      {selectedLot.crop_establishment === 'D' ? 'Direct Sown (D)' : selectedLot.crop_establishment === 'T' ? 'Transplanted (T)' : 'N/A'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Expected Sowing Date:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.expected_sowing_date || 'N/A'}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Date Received:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.date_received || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Major Seed & Variety Harvested */}
               <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3">
                 <div className="flex justify-between items-center">
                   <h4 className="font-bold text-emerald-800 uppercase tracking-wider text-[11px]">
-                    Crop & Farm Telemetry
+                    3. Major Seed & Harvest Production
                   </h4>
                   <button
                     type="button"
@@ -347,48 +403,32 @@ export default function SeedLotManager({ onOpenAddModal }: SeedLotManagerProps) 
 
                 {saveFeedback && <div className="text-[11px] text-emerald-600 font-medium">{saveFeedback}</div>}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="sm:col-span-2 bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Rice Variety:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Seed Class:</span>
+                    <span className="font-bold text-slate-800">
+                      {selectedLot.seed_class === 'CS' ? 'Certified Seed (CS)' : selectedLot.seed_class === 'H' ? 'Hybrid (H)' : selectedLot.seed_class === 'F' ? 'Foundation (F)' : 'N/A'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Planted Variety:</span>
                     <span className="font-bold text-emerald-700 text-sm">{getVarietyDisplayName(selectedLot)}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Farm Area:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.farm_area_hectares ? `${selectedLot.farm_area_hectares} Ha` : 'N/A'}</span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Area Harvested:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.area_harvested_ha ? `${selectedLot.area_harvested_ha} ha` : 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Seed Beds Count:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.seed_beds_count ?? 'N/A'}</span>
-                  </div>
-
-                  <div className="sm:col-span-2 bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Planting Date:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.planting_date || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Section 3: Yield Metrics */}
-              <div className="bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3">
-                <h4 className="font-bold text-emerald-800 uppercase tracking-wider text-[11px]">
-                  Harvest Results
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Harvest Date:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.harvest_date || 'Pending'}</span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Total Harvest:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.total_harvest_bags ? `${selectedLot.total_harvest_bags} bags` : 'N/A'}</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Total Weight:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.harvest_amount_kg ? `${selectedLot.harvest_amount_kg} kg` : 'N/A'}</span>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Sacks Harvested:</span>
-                    <span className="font-bold text-slate-800">{selectedLot.avg_sacks_harvested ? `${selectedLot.avg_sacks_harvested} sacks` : 'N/A'}</span>
+                    <span className="text-slate-500 block font-semibold text-[11px] mb-0.5">Harvest Weight / Bag:</span>
+                    <span className="font-bold text-slate-800">{selectedLot.harvest_weight_per_bag_kg ? `${selectedLot.harvest_weight_per_bag_kg} kg` : 'N/A'}</span>
                   </div>
                 </div>
               </div>
