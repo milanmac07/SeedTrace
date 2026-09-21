@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 
 interface AddSeedBatchModalProps {
   onClose: () => void;
   onSuccess?: () => void;
 }
+
+// Batch Code auto-generation helper
+const generateBatchCode = () => {
+  const year = new Date().getFullYear();
+  const randomAlphaNum = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `LOT-${year}-${randomAlphaNum}`;
+};
 
 export default function AddSeedBatchModal({ onClose, onSuccess }: AddSeedBatchModalProps) {
   const [loading, setLoading] = useState(false);
@@ -32,6 +39,21 @@ export default function AddSeedBatchModal({ onClose, onSuccess }: AddSeedBatchMo
     date_received: '',
   });
 
+  // Pre-fill lot code when the modal mounts
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      lot_code: generateBatchCode(),
+    }));
+  }, []);
+
+  const handleAutoGenerateCode = () => {
+    setFormData((prev) => ({
+      ...prev,
+      lot_code: generateBatchCode(),
+    }));
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -44,7 +66,7 @@ export default function AddSeedBatchModal({ onClose, onSuccess }: AddSeedBatchMo
 
     try {
       const payload = {
-        lot_code: formData.lot_code || `LOT-${Date.now().toString().slice(-6)}`,
+        lot_code: formData.lot_code || generateBatchCode(),
         farmer_name: formData.farmer_name,
         location: formData.location,
         registered_municipal_area: formData.registered_municipal_area,
@@ -113,17 +135,28 @@ export default function AddSeedBatchModal({ onClose, onSuccess }: AddSeedBatchMo
             </h4>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              
+              {/* Batch Code Field with Auto Generation */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Batch Code Identifier *</label>
-                <input
-                  type="text"
-                  name="lot_code"
-                  required
-                  placeholder="e.g., LOT-2026-A1"
-                  value={formData.lot_code}
-                  onChange={handleChange}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 outline-none focus:border-emerald-600"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    name="lot_code"
+                    required
+                    placeholder="e.g., LOT-2026-A1"
+                    value={formData.lot_code}
+                    onChange={handleChange}
+                    className="w-full font-mono font-bold bg-white border border-slate-300 rounded-lg p-2.5 outline-none focus:border-emerald-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAutoGenerateCode}
+                    className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-semibold text-[11px] px-3 py-2.5 rounded-lg border border-emerald-300 transition-colors whitespace-nowrap"
+                  >
+                    ⚡ Auto
+                  </button>
+                </div>
               </div>
 
               <div>
