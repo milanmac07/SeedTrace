@@ -1,66 +1,99 @@
-import { supabase } from '../../../utils/supabase';
+import { createClient } from '@supabase/supabase-js';
+import { supabase as defaultSupabase } from '../../../utils/supabase';
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
+// 1. Initialize Supabase Admin Client using Service Role Key (if present)
+// This guarantees unauthenticated QR code scans bypass RLS restrictions
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase = supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false } })
+  : defaultSupabase;
+
 export default async function PublicTracePage({ params }: Props) {
   const { id } = await params;
 
-  const { data: lot, error } = await supabase
-    .from('seed_lots')
-    .select(`
+  // Query using LEFT JOINs (!left) so missing foreign records won't discard the seed lot
+  const selectFields = `
+    id,
+    lot_code,
+    farmer_name,
+    contact_number,
+    location,
+    gender,
+    birthday,
+    birthdate,
+    is_ip,
+    ip_group_name,
+    registered_municipal_area,
+    status,
+    area_to_be_planted_ha,
+    farm_area_hectares,
+    total_parcel_count,
+    seed_beds_count,
+    expected_sowing_date,
+    date_received,
+    planting_date,
+    seed_class,
+    rice_variety_received,
+    planted_variety,
+    area_harvested_ha,
+    total_harvest_bags,
+    avg_sacks_harvested,
+    harvest_weight_per_bag_kg,
+    harvest_amount_kg,
+    varieties!left (
       id,
-      lot_code,
-      farmer_name,
-      contact_number,
-      location,
-      gender,
-      birthday,
-      birthdate,
-      is_ip,
-      ip_group_name,
-      registered_municipal_area,
-      status,
-      area_to_be_planted_ha,
-      farm_area_hectares,
-      total_parcel_count,
-      seed_beds_count,
-      expected_sowing_date,
-      date_received,
-      planting_date,
-      seed_class,
-      rice_variety_received,
-      planted_variety,
-      area_harvested_ha,
-      total_harvest_bags,
-      avg_sacks_harvested,
-      harvest_weight_per_bag_kg,
-      harvest_amount_kg,
-      varieties (
-        id,
-        variety_name,
-        name,
-        maturity_days,
-        ideal_soil_ph
-      ),
-      environmental_data (
-        id,
-        region,
-        current_soil_ph,
-        avg_monthly_rainfall_mm,
-        created_at
-      )
-    `)
-    .or(`id.eq.${id},lot_code.eq.${id}`)
-    .maybeSingle();
+      variety_name,
+      name,
+      maturity_days,
+      ideal_soil_ph
+    ),
+    environmental_data!left (
+      id,
+      region,
+      current_soil_ph,
+      avg_monthly_rainfall_mm,
+      created_at
+    )
+  `;
 
-  if (error || !lot) {
+  // Check if string matches a standard UUID pattern to prevent Postgres casting errors
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+  let lot = null;
+
+  if (isUuid) {
+    const { data } = await supabase
+      .from('seed_lots')
+      .select(selectFields)
+      .eq('id', id)
+      .maybeSingle();
+    lot = data;
+  }
+
+  // Fallback to lot_code if not found by UUID or if `id` is a plain string
+  if (!lot) {
+    const { data } = await supabase
+      .from('seed_lots')
+      .select(selectFields)
+      .eq('lot_code', id)
+      .maybeSingle();
+    lot = data;
+  }
+
+  if (!lot) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center max-w-md w-full">
           <p className="text-sm font-semibold text-slate-800">Seed Lot Record Not Found</p>
-          <p className="text-xs text-slate-500 mt-1">The scanned QR code or ID does not exist in the database.</p>
+          <p className="text-xs text-slate-500 mt-1">
+            The scanned QR code or ID (<span className="font-mono">{id}</span>) does not exist in the database.
+          </p>
         </div>
       </div>
     );
@@ -77,12 +110,12 @@ export default async function PublicTracePage({ params }: Props) {
     varietiesData?.name ||
     'Registered Rice Seed';
 
-  // Field Mapping Fallbacks (fixes N/A values across schema variants)
+  // Field Mapping Fallbacks
   const farmArea = lot.area_to_be_planted_ha ?? lot.farm_area_hectares ?? null;
   const parcelCount = lot.total_parcel_count ?? lot.seed_beds_count ?? null;
   const plantingDate = lot.expected_sowing_date || lot.date_received || lot.planting_date || null;
   
-  // Harvest calculations based on bag count and unit weight
+  // Harvest calculations
   const totalBags = lot.total_harvest_bags ?? lot.avg_sacks_harvested ?? null;
   const weightPerBag = lot.harvest_weight_per_bag_kg ?? 50;
   const totalWeightKg = lot.harvest_amount_kg ?? (totalBags ? totalBags * weightPerBag : null);
