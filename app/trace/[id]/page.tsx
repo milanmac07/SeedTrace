@@ -8,11 +8,12 @@ export default async function PublicTracePage({ params }: Props) {
   const { id } = await params;
 
   // Fetch Seed Lot + Linked Variety + Environmental Logs
+  // Allows querying by database UUID or by lot_code identifier
   const { data: lot, error } = await supabase
     .from('seed_lots')
     .select('*, varieties(*), environmental_data(*)')
-    .eq('id', id)
-    .single();
+    .or(`id.eq.${id},lot_code.eq.${id}`)
+    .maybeSingle();
 
   if (error || !lot) {
     return (
@@ -27,10 +28,21 @@ export default async function PublicTracePage({ params }: Props) {
 
   // Fallbacks for variety name attributes
   const varietyName =
+    lot.rice_variety_received ||
+    lot.planted_variety ||
     lot.varieties?.variety_name ||
     lot.varieties?.name ||
-    lot.variety_id ||
     'Registered Rice Seed';
+
+  // Field Mapping Fallbacks (fixes N/A values across different schema variants)
+  const farmArea = lot.area_to_be_planted_ha ?? lot.farm_area_hectares ?? null;
+  const parcelCount = lot.total_parcel_count ?? lot.seed_beds_count ?? null;
+  const plantingDate = lot.expected_sowing_date || lot.date_received || lot.planting_date || null;
+  
+  // Harvest calculations based on bag count and unit weight
+  const totalBags = lot.total_harvest_bags ?? lot.avg_sacks_harvested ?? null;
+  const weightPerBag = lot.harvest_weight_per_bag_kg ?? 50;
+  const totalWeightKg = lot.harvest_amount_kg ?? (totalBags ? totalBags * weightPerBag : null);
 
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 font-sans text-slate-800">
@@ -68,14 +80,18 @@ export default async function PublicTracePage({ params }: Props) {
             <div>
               <span className="text-slate-400 block">Gender & Birthday:</span>
               <span className="font-semibold text-slate-800">
-                {lot.gender || 'N/A'} {lot.birthday ? `(${lot.birthday})` : ''}
+                {lot.gender || 'N/A'} {lot.birthday ? `(${lot.birthday})` : lot.birthdate ? `(${lot.birthdate})` : ''}
               </span>
             </div>
-            <div className="col-span-2">
+            <div>
               <span className="text-slate-400 block">Indigenous People (IP) Member:</span>
               <span className="font-semibold text-slate-800">
                 {lot.is_ip ? `Yes ${lot.ip_group_name ? `(${lot.ip_group_name})` : ''}` : 'No'}
               </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Municipal Area:</span>
+              <span className="font-semibold text-slate-800">{lot.registered_municipal_area || 'N/A'}</span>
             </div>
           </div>
         </div>
@@ -89,32 +105,32 @@ export default async function PublicTracePage({ params }: Props) {
             <div>
               <span className="text-slate-400 block">Certification Status:</span>
               <span className="font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded inline-block mt-0.5">
-                {lot.status || 'Certified'}
+                {lot.status || 'Registered'}
               </span>
             </div>
             <div>
               <span className="text-slate-400 block">Farm Area (Hectares):</span>
               <span className="font-semibold text-slate-800">
-                {lot.farm_area_hectares ? `${lot.farm_area_hectares} ha` : 'N/A'}
+                {farmArea ? `${farmArea} ha` : 'N/A'}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block">Seed Beds / Dapog Count:</span>
-              <span className="font-semibold text-slate-800">{lot.seed_beds_count ?? 'N/A'}</span>
+              <span className="text-slate-400 block">Total Parcels / Seed Beds:</span>
+              <span className="font-semibold text-slate-800">{parcelCount ?? 'N/A'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Planting Date:</span>
-              <span className="font-semibold text-slate-800">{lot.planting_date || 'N/A'}</span>
+              <span className="text-slate-400 block">Sowing / Planting Date:</span>
+              <span className="font-semibold text-slate-800">{plantingDate || 'N/A'}</span>
             </div>
             <div>
               <span className="text-slate-400 block">Maturity Days:</span>
               <span className="font-semibold text-slate-800">
-                {lot.varieties?.maturity_days ? `${lot.varieties.maturity_days} Days` : 'N/A'}
+                {lot.varieties?.maturity_days ? `${lot.varieties.maturity_days} Days` : lot.maturity_days ? `${lot.maturity_days} Days` : 'N/A'}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block">Ideal Soil pH:</span>
-              <span className="font-semibold text-slate-800">{lot.varieties?.ideal_soil_ph || 'N/A'}</span>
+              <span className="text-slate-400 block">Seed Class:</span>
+              <span className="font-semibold text-slate-800">{lot.seed_class || 'CS'}</span>
             </div>
           </div>
         </div>
@@ -126,19 +142,21 @@ export default async function PublicTracePage({ params }: Props) {
           </h3>
           <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 p-3 rounded-xl border border-slate-100">
             <div>
-              <span className="text-slate-400 block text-[10px]">Harvest Date</span>
-              <span className="font-bold text-slate-800 text-xs">{lot.harvest_date || 'Pending'}</span>
+              <span className="text-slate-400 block text-[10px]">Harvest Area</span>
+              <span className="font-bold text-slate-800 text-xs">
+                {lot.area_harvested_ha ? `${lot.area_harvested_ha} ha` : 'Pending'}
+              </span>
             </div>
             <div>
               <span className="text-slate-400 block text-[10px]">Total Weight</span>
               <span className="font-bold text-slate-800 text-xs">
-                {lot.harvest_amount_kg ? `${lot.harvest_amount_kg} kg` : 'N/A'}
+                {totalWeightKg ? `${totalWeightKg} kg` : 'N/A'}
               </span>
             </div>
             <div>
               <span className="text-slate-400 block text-[10px]">Yield Sacks</span>
               <span className="font-bold text-emerald-700 text-xs">
-                {lot.avg_sacks_harvested ? `${lot.avg_sacks_harvested} Sacks` : 'N/A'}
+                {totalBags ? `${totalBags} Sacks` : 'N/A'}
               </span>
             </div>
           </div>
