@@ -7,11 +7,51 @@ interface Props {
 export default async function PublicTracePage({ params }: Props) {
   const { id } = await params;
 
-  // Fetch Seed Lot + Linked Variety + Environmental Logs
-  // Allows querying by database UUID or by lot_code identifier
   const { data: lot, error } = await supabase
     .from('seed_lots')
-    .select('*, varieties(*), environmental_data(*)')
+    .select(`
+      id,
+      lot_code,
+      farmer_name,
+      contact_number,
+      location,
+      gender,
+      birthday,
+      birthdate,
+      is_ip,
+      ip_group_name,
+      registered_municipal_area,
+      status,
+      area_to_be_planted_ha,
+      farm_area_hectares,
+      total_parcel_count,
+      seed_beds_count,
+      expected_sowing_date,
+      date_received,
+      planting_date,
+      seed_class,
+      rice_variety_received,
+      planted_variety,
+      area_harvested_ha,
+      total_harvest_bags,
+      avg_sacks_harvested,
+      harvest_weight_per_bag_kg,
+      harvest_amount_kg,
+      varieties (
+        id,
+        variety_name,
+        name,
+        maturity_days,
+        ideal_soil_ph
+      ),
+      environmental_data (
+        id,
+        region,
+        current_soil_ph,
+        avg_monthly_rainfall_mm,
+        created_at
+      )
+    `)
     .or(`id.eq.${id},lot_code.eq.${id}`)
     .maybeSingle();
 
@@ -26,15 +66,18 @@ export default async function PublicTracePage({ params }: Props) {
     );
   }
 
+  // Extract nested relationship array cleanly
+  const varietiesData = Array.isArray(lot.varieties) ? lot.varieties[0] : lot.varieties;
+
   // Fallbacks for variety name attributes
   const varietyName =
     lot.rice_variety_received ||
     lot.planted_variety ||
-    lot.varieties?.variety_name ||
-    lot.varieties?.name ||
+    varietiesData?.variety_name ||
+    varietiesData?.name ||
     'Registered Rice Seed';
 
-  // Field Mapping Fallbacks (fixes N/A values across different schema variants)
+  // Field Mapping Fallbacks (fixes N/A values across schema variants)
   const farmArea = lot.area_to_be_planted_ha ?? lot.farm_area_hectares ?? null;
   const parcelCount = lot.total_parcel_count ?? lot.seed_beds_count ?? null;
   const plantingDate = lot.expected_sowing_date || lot.date_received || lot.planting_date || null;
@@ -55,7 +98,7 @@ export default async function PublicTracePage({ params }: Props) {
           </span>
           <h1 className="text-2xl font-extrabold text-white">{varietyName}</h1>
           <p className="text-xs text-emerald-100 font-mono">
-            Lot Code: <span className="font-bold text-white">{lot.lot_code || lot.batch_number || id}</span>
+            Lot Code: <span className="font-bold text-white">{lot.lot_code || id}</span>
           </p>
         </div>
 
@@ -125,7 +168,7 @@ export default async function PublicTracePage({ params }: Props) {
             <div>
               <span className="text-slate-400 block">Maturity Days:</span>
               <span className="font-semibold text-slate-800">
-                {lot.varieties?.maturity_days ? `${lot.varieties.maturity_days} Days` : lot.maturity_days ? `${lot.maturity_days} Days` : 'N/A'}
+                {varietiesData?.maturity_days ? `${varietiesData.maturity_days} Days` : 'N/A'}
               </span>
             </div>
             <div>
